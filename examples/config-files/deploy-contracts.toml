@@ -1,0 +1,12 @@
+module_type = "object"
+private_key = "0x00"
+network = "testnet"
+modules_path = [
+  "/home/ubuntu/code/zkp/navori-2/libs",
+  "/home/ubuntu/code/zkp/navori-2/cpu-2",
+  "/home/ubuntu/code/zkp/navori-2/cpu",
+  "/home/ubuntu/code/zkp/navori-2/verifier",
+]
+addresses_name = ["lib_addr", "cpu_2_addr", "cpu_addr", "verifier_addr"]
+yes = true
+output_json = "test.json"
