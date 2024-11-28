@@ -8,7 +8,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use jayce::deploy_config::{AptosNetwork, DeployConfig, DeployModuleType, PartialDeployConfig};
 use jayce::tasks::deploy_contracts::deploy_contracts;
 
-// Todo: add descriptions to the commands
+// Todo: allow local deployment
 #[derive(Parser, Debug)]
 #[command(name = "jayce")]
 #[command(about, long_about = None)]
@@ -23,23 +23,31 @@ struct Cli {
 enum Commands {
     /// Deploy contracts
     Deploy {
+        /// The private key used for deployment
         #[arg(long)]
         private_key: Option<String>,
+        /// The type of module to deploy
         #[arg(long, default_value_t = DeployModuleType::Object)]
         module_type: DeployModuleType,
+        /// Paths to the modules to be deployed, separated by commas
         #[arg(long, num_args = 1.., value_delimiter = ',')]
         modules_path: Option<Vec<PathBuf>>,
+        /// Names of the addresses corresponding to the modules, separated by commas
         #[arg(long, num_args = 1.., value_delimiter = ',')]
         addresses_name: Option<Vec<String>>,
+        /// The network to deploy to
         #[arg(long, default_value_t = AptosNetwork::Devnet)]
         network: AptosNetwork,
+        /// The path to the output JSON file for the deployment report
         #[arg(long, default_value = "deploy-report.json")]
         output_json: PathBuf,
+        /// A map of already deployed addresses, e.g. addr_1=0x1,addr_2=0x2
         #[arg(long, value_parser = aptos::common::utils::parse_map::<String, AccountAddress>)]
         deployed_addresses: BTreeMap<String, AccountAddress>,
+        /// Automatically confirm prompts
         #[arg(short, long, default_value_t = false)]
         yes: bool,
-        /// Sets a custom config file
+        /// Path to the toml configuration file
         #[arg(long)]
         config_path: Option<PathBuf>,
     },
