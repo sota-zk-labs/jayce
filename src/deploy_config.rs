@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
 use clap::ValueEnum;
 use config::{Config as ConfigLoader, File, FileFormat};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use aptos_sdk::move_types::account_address::AccountAddress;
 use strum_macros::Display;
 
 #[derive(Deserialize, Clone, Debug, PartialEq, ValueEnum, Display)]
@@ -29,6 +31,7 @@ pub struct DeployConfig {
     pub network: AptosNetwork,
     pub yes: bool,
     pub output_json: PathBuf,
+    pub deployed_addresses: BTreeMap<String, AccountAddress>
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -40,6 +43,7 @@ pub struct PartialDeployConfig {
     pub network: Option<AptosNetwork>,
     pub yes: Option<bool>,
     pub output_json: Option<PathBuf>,
+    pub deployed_addresses: Option<BTreeMap<String, AccountAddress>>
 }
 
 impl PartialDeployConfig {
@@ -63,6 +67,7 @@ impl From<PartialDeployConfig> for DeployConfig {
             network: value.network.expect("Missing argument 'network'"),
             yes: value.yes.expect("Missing argument 'yes'"),
             output_json: value.output_json.expect("Missing argument 'output-json'"),
+            deployed_addresses: value.deployed_addresses.expect("Missing argument 'deployed-addresses'")
         }
     }
 }
@@ -88,10 +93,11 @@ impl AptosNetwork {
 
 #[cfg(test)]
 mod test {
-    use crate::deploy_config::DeployConfig;
+    use crate::deploy_config::PartialDeployConfig;
 
     #[test]
     fn test_read_deploy_config() {
-        DeployConfig::from_path("examples/config-files/deploy-contracts.toml").unwrap();
+        let x = PartialDeployConfig::from_path("examples/config-files/deploy-contracts.toml").unwrap();
+        dbg!(x);
     }
 }

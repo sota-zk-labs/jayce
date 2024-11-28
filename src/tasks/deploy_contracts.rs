@@ -1,10 +1,11 @@
 use crate::deploy_config::{AptosNetwork, DeployConfig, DeployModuleType};
-use anyhow::anyhow;
+use anyhow::{anyhow, ensure};
 use aptos::common::types::{CliCommand, TransactionSummary};
 use aptos::move_tool::MoveTool;
 use aptos::Tool;
 use aptos_sdk::move_types::account_address::AccountAddress;
 use clap::Parser;
+use config::{Config, File, FileFormat};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -31,7 +32,6 @@ struct TxReport {
     tx_info: TransactionSummary,
 }
 
-// Todo: handle already deployed contracts in named_addresses
 pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
     let mut report_info = vec![];
     match config.module_type {
@@ -39,19 +39,37 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
             todo!()
         }
         DeployModuleType::Object => {
-            let mut object_addresses = HashMap::<String, String>::new();
+            let mut object_addresses = config.deployed_addresses.clone();
             for (package_dir, address_name) in
                 config.modules_path.iter().zip(&config.addresses_name)
             {
+                if object_addresses.contains_key(address_name) {
+                    println!(
+                        "Address name {} already deployed, skipping...",
+                        address_name
+                    );
+                    continue;
+                }
                 println!(
                     "Deploying package {} with address name {}...",
                     package_dir.to_str().unwrap(),
                     address_name
                 );
-                let named_addresses = object_addresses
+                let named_addresses = get_named_addresses(package_dir, address_name)?;
+                let named_addresses = named_addresses
                     .iter()
-                    .map(|(named_address, hex_address)| {
-                        format!("{}={}", named_address, hex_address)
+                    .map(|(named_address, _)| {
+                        let hex_address = object_addresses.get(named_address);
+                        if hex_address.is_none() {
+                            panic!(
+                                "{}",
+                                format!(
+                                    "{} should be deployed before {}",
+                                    named_address, address_name
+                                )
+                            );
+                        }
+                        format!("{}={}", named_address, hex_address.unwrap())
                     })
                     .reduce(|acc, cur| format!("{},{}", acc, cur))
                     .map(|named_addresses| format!("--named-addresses {}", named_addresses))
@@ -81,7 +99,7 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
 
                 let (tx_info, object_address) = deploy_to_object(&args).await?;
 
-                object_addresses.insert(address_name.clone(), object_address.to_hex_literal());
+                object_addresses.insert(address_name.clone(), object_address);
                 report_info.push(TxReport {
                     module_path: package_dir.clone(),
                     address_name: address_name.clone(),
@@ -95,7 +113,7 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
         &config.output_json,
         serde_json::to_string_pretty(&DeployReport {
             account: AccountAddress::from_str(&config.private_key)?,
-            network: AptosNetwork::Mainnet,
+            network: config.network.clone(),
             info: report_info,
         })?,
     )?;
@@ -118,33 +136,76 @@ async fn deploy_to_object(
     }
 }
 
+fn get_named_addresses(
+    package_dir: &PathBuf,
+    address_name: &String,
+) -> anyhow::Result<HashMap<String, String>> {
+    let move_toml: MoveTomlFile = Config::builder()
+        .add_source(File::new(
+            package_dir.join("Move.toml").to_str().unwrap(),
+            FileFormat::Toml,
+        ))
+        .build()?
+        .try_deserialize()?;
+    let mut named_addresses = move_toml.addresses;
+    ensure!(
+        named_addresses.contains_key(address_name),
+        format!(
+            "Address name {} not found in {}/Move.toml",
+            address_name,
+            package_dir.to_str().unwrap()
+        )
+    );
+    named_addresses.remove(address_name);
+    Ok(named_addresses)
+}
+
 #[cfg(test)]
 mod test {
     use crate::deploy_config::AptosNetwork;
     use crate::tasks::deploy_contracts::deploy_contracts;
+    use aptos_sdk::types::account_address::AccountAddress;
+    use std::collections::BTreeMap;
     use std::env::var;
     use std::path::PathBuf;
+    use std::str::FromStr;
 
     #[tokio::test]
     async fn test_deploy_contracts() {
+        let mut deployed_addresses = BTreeMap::new();
+        deployed_addresses.insert(
+            "lib_addr".to_string(),
+            AccountAddress::from_str(
+                "2d77ba9653c5260988950fd4cbd47dac49934cee8152d6a4a32b866d86a600b1",
+            )
+            .unwrap(),
+        );
+        deployed_addresses.insert(
+            "cpu_2_addr".to_string(),
+            AccountAddress::from_str(
+                "1b9750db89454d4697480a49908ac7d703f6d6db2b2b79ea9b2d8201485dbbfa",
+            )
+            .unwrap(),
+        );
         let config = crate::deploy_config::DeployConfig {
             module_type: crate::deploy_config::DeployModuleType::Object,
             private_key: var("APTOS_PRIVATE_KEY").unwrap(),
             network: AptosNetwork::Testnet,
             modules_path: vec![
-                PathBuf::from("/home/ubuntu/code/zkp/navori-2/libs"),
-                PathBuf::from("/home/ubuntu/code/zkp/navori-2/cpu-2"),
-                PathBuf::from("/home/ubuntu/code/zkp/navori-2/cpu"),
-                PathBuf::from("/home/ubuntu/code/zkp/navori-2/verifier"),
+                // PathBuf::from("examples/contracts/navori/libs"),
+                // PathBuf::from("examples/contracts/navori/cpu-2"),
+                PathBuf::from("examples/contracts/navori/cpu"),
+                PathBuf::from("examples/contracts/navori/verifier"),
             ],
             addresses_name: vec![
-                "lib_addr".to_string(),
-                "cpu_2_addr".to_string(),
+                // "lib_addr".to_string(),
+                // "cpu_2_addr".to_string(),
                 "cpu_addr".to_string(),
                 "verifier_addr".to_string(),
             ],
             yes: true,
             output_json: PathBuf::from("test.json"),
+            deployed_addresses,
         };
         deploy_contracts(&config).await.unwrap();
     }
