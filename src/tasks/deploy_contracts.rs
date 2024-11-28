@@ -4,14 +4,13 @@ use aptos::common::types::{CliCommand, TransactionSummary};
 use aptos::move_tool::MoveTool;
 use aptos::Tool;
 use aptos_sdk::move_types::account_address::AccountAddress;
+use aptos_sdk::types::LocalAccount;
 use clap::Parser;
 use config::{Config, File, FileFormat};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::str::FromStr;
-use aptos_sdk::types::LocalAccount;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct MoveTomlFile {
@@ -29,91 +28,99 @@ struct DeployReport {
 struct TxReport {
     module_path: PathBuf,
     address_name: String,
-    object_address: Option<AccountAddress>,
+    deployed_at: AccountAddress,
     tx_info: TransactionSummary,
 }
 
 pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
     let mut report_info = vec![];
-    match config.module_type {
-        DeployModuleType::Account => {
-            todo!()
+    let mut deployed_addresses = config.deployed_addresses.clone();
+    let sender_addr = LocalAccount::from_private_key(&config.private_key, 0)?.address();
+    for (package_dir, address_name) in config.modules_path.iter().zip(&config.addresses_name) {
+        if deployed_addresses.contains_key(address_name) {
+            println!(
+                "Address name {} already deployed, skipping...",
+                address_name
+            );
+            continue;
         }
-        DeployModuleType::Object => {
-            let mut object_addresses = config.deployed_addresses.clone();
-            for (package_dir, address_name) in
-                config.modules_path.iter().zip(&config.addresses_name)
-            {
-                if object_addresses.contains_key(address_name) {
-                    println!(
-                        "Address name {} already deployed, skipping...",
-                        address_name
-                    );
-                    continue;
+        println!(
+            "Deploying package {} with address name {}...",
+            package_dir.to_str().unwrap(),
+            address_name
+        );
+        let named_addresses =
+            get_named_addresses(package_dir, address_name, config.module_type.clone())?;
+        let named_addresses = named_addresses
+            .iter()
+            .map(|(named_address, _)| {
+                let mut hex_address = deployed_addresses.get(named_address);
+                if hex_address.is_none() {
+                    if named_address == address_name {
+                        hex_address = Some(&sender_addr);
+                    } else {
+                        panic!(
+                            "{}",
+                            format!(
+                                "'{}' should be deployed before '{}'",
+                                named_address, address_name
+                            )
+                        );
+                    }
                 }
-                println!(
-                    "Deploying package {} with address name {}...",
-                    package_dir.to_str().unwrap(),
-                    address_name
-                );
-                let named_addresses = get_named_addresses(package_dir, address_name)?;
-                let named_addresses = named_addresses
-                    .iter()
-                    .map(|(named_address, _)| {
-                        let hex_address = object_addresses.get(named_address);
-                        if hex_address.is_none() {
-                            panic!(
-                                "{}",
-                                format!(
-                                    "{} should be deployed before {}",
-                                    named_address, address_name
-                                )
-                            );
-                        }
-                        format!("{}={}", named_address, hex_address.unwrap())
-                    })
-                    .reduce(|acc, cur| format!("{},{}", acc, cur))
-                    .map(|named_addresses| format!("--named-addresses {}", named_addresses))
-                    .unwrap_or("".to_string());
+                format!("{}={}", named_address, hex_address.unwrap())
+            })
+            .reduce(|acc, cur| format!("{},{}", acc, cur))
+            .map(|named_addresses| format!("--named-addresses {}", named_addresses))
+            .unwrap_or("".to_string());
 
-                let args = format!(
-                    "aptos move create-object-and-publish-package \
+        let args = format!(
+            "aptos move {} \
                 --package-dir {} \
                 --private-key {} \
                 --skip-fetch-latest-git-deps \
                 --included-artifacts none \
-                --address-name {} \
+                {} \
                 --url {} \
                 {} \
                 ",
-                    package_dir.to_str().unwrap(),
-                    &config.private_key,
-                    address_name,
-                    config.network.rest_url(),
-                    named_addresses
-                );
-                let mut args: Vec<&str> = args.split_whitespace().collect();
+            match config.module_type {
+                DeployModuleType::Object => "create-object-and-publish-package",
+                DeployModuleType::Account => "publish",
+            },
+            package_dir.to_str().unwrap(),
+            &config.private_key,
+            match config.module_type {
+                DeployModuleType::Account => "".to_string(),
+                DeployModuleType::Object => format!("--address-name {}", address_name),
+            },
+            config.network.rest_url(),
+            named_addresses
+        );
+        let mut args: Vec<&str> = args.split_whitespace().collect();
 
-                if config.yes {
-                    args.push("--assume-yes");
-                }
-
-                let (tx_info, object_address) = deploy_to_object(&args).await?;
-
-                object_addresses.insert(address_name.clone(), object_address);
-                report_info.push(TxReport {
-                    module_path: package_dir.clone(),
-                    address_name: address_name.clone(),
-                    object_address: Some(object_address),
-                    tx_info,
-                });
-            }
+        if config.yes {
+            args.push("--assume-yes");
         }
-    };
+
+        let (tx_info, deployed_at) = deploy_to_object(&args).await?;
+
+        let deployed_at = match config.module_type {
+            DeployModuleType::Account => sender_addr,
+            DeployModuleType::Object => deployed_at.unwrap(),
+        };
+        deployed_addresses.insert(address_name.clone(), deployed_at);
+        report_info.push(TxReport {
+            module_path: package_dir.clone(),
+            address_name: address_name.clone(),
+            deployed_at,
+            tx_info,
+        });
+    }
     fs::write(
         &config.output_json,
         serde_json::to_string_pretty(&DeployReport {
-            account: LocalAccount::from_private_key(&config.private_key, 0)?.address(),
+            account: sender_addr,
             network: config.network.clone(),
             info: report_info,
         })?,
@@ -123,12 +130,16 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
 
 async fn deploy_to_object(
     args: &Vec<&str>,
-) -> anyhow::Result<(TransactionSummary, AccountAddress)> {
+) -> anyhow::Result<(TransactionSummary, Option<AccountAddress>)> {
     let tool = Tool::try_parse_from(args).expect("Failed to parse arguments");
 
     // Match on the parsed `Tool` to extract `CreateObjectAndPublishPackage`
     if let Tool::Move(MoveTool::CreateObjectAndPublishPackage(cmd)) = tool {
-        Ok(cmd.execute().await?)
+        let (tx_info, object_addr) = cmd.execute().await?;
+        Ok((tx_info, Some(object_addr)))
+    } else if let Tool::Move(MoveTool::Publish(cmd)) = tool {
+        let tx_info = cmd.execute().await?;
+        Ok((tx_info, None))
     } else {
         Err(anyhow!(format!(
             "Wrong arguments to deploy contracts: {:?}",
@@ -140,6 +151,7 @@ async fn deploy_to_object(
 fn get_named_addresses(
     package_dir: &PathBuf,
     address_name: &String,
+    module_type: DeployModuleType,
 ) -> anyhow::Result<HashMap<String, String>> {
     let move_toml: MoveTomlFile = Config::builder()
         .add_source(File::new(
@@ -157,7 +169,9 @@ fn get_named_addresses(
             package_dir.to_str().unwrap()
         )
     );
-    named_addresses.remove(address_name);
+    if module_type == DeployModuleType::Object {
+        named_addresses.remove(address_name);
+    }
     Ok(named_addresses)
 }
 
@@ -170,7 +184,6 @@ mod test {
     use std::env::var;
     use std::path::PathBuf;
     use std::str::FromStr;
-    use aptos_sdk::types::LocalAccount;
 
     #[tokio::test]
     async fn test_deploy_contracts() {
@@ -190,7 +203,7 @@ mod test {
             .unwrap(),
         );
         let config = crate::deploy_config::DeployConfig {
-            module_type: crate::deploy_config::DeployModuleType::Object,
+            module_type: crate::deploy_config::DeployModuleType::Account,
             private_key: var("APTOS_PRIVATE_KEY").unwrap(),
             network: AptosNetwork::Testnet,
             modules_path: vec![
