@@ -1,9 +1,9 @@
-use std::collections::HashSet;
+use std::env;
 use std::path::PathBuf;
 
 use anyhow::{ensure, Result};
 use clap::{CommandFactory, Parser, Subcommand};
-use jayce::deploy_config::{AptosNetwork, DeployConfig, DeployModuleType};
+use jayce::deploy_config::{AptosNetwork, DeployConfig, DeployModuleType, PartialDeployConfig};
 use jayce::tasks::deploy_contracts::deploy_contracts;
 
 // Todo: add descriptions to the commands
@@ -21,22 +21,22 @@ struct Cli {
 enum Commands {
     /// Deploy contracts
     Deploy {
-        #[arg(short, long)]
+        #[arg(long)]
         private_key: Option<String>,
-        #[arg(short, long, default_value_t = DeployModuleType::Object)]
+        #[arg(long, default_value_t = DeployModuleType::Object)]
         module_type: DeployModuleType,
-        #[arg(short, long, num_args = 1.., value_delimiter = ',')]
+        #[arg(long, num_args = 1.., value_delimiter = ',')]
         modules_path: Option<Vec<PathBuf>>,
-        #[arg(short, long, num_args = 1.., value_delimiter = ',')]
+        #[arg(long, num_args = 1.., value_delimiter = ',')]
         addresses_name: Option<Vec<String>>,
-        #[arg(short, long, default_value_t = AptosNetwork::Devnet)]
+        #[arg(long, default_value_t = AptosNetwork::Devnet)]
         network: AptosNetwork,
-        #[arg(short, long, default_value = "deploy-report.json")]
+        #[arg(long, default_value = "deploy-report.json")]
         output_json: PathBuf,
         #[arg(short, long, default_value_t = false)]
         yes: bool,
         /// Sets a custom config file
-        #[arg(short, long)]
+        #[arg(long)]
         config_path: Option<PathBuf>,
     },
 }
@@ -44,6 +44,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Cli::parse();
+    let args_str: Vec<String> = env::args().collect();
     if args.version {
         println!(env!("APP_VERSION"));
         return Ok(());
@@ -65,31 +66,55 @@ async fn main() -> Result<()> {
                     module_type,
                     modules_path,
                 } => {
-                    let deploy_config = if let Some(config_path) = config_path {
-                        DeployConfig::from_path(config_path.to_str().unwrap())?
+                    let mut partial_deploy_config = if let Some(config_path) = config_path {
+                        PartialDeployConfig::from_path(config_path.to_str().unwrap())?
                     } else {
-                        let private_key = private_key.expect("Missing argument private key");
-                        let modules_path = modules_path.expect("Missing argument modules path");
-                        let addresses_name = addresses_name.expect("Missing argument modules path");
-                        ensure!(
-                            modules_path.len() == addresses_name.len(),
-                            "Modules path and addresses name must have the same length"
-                        );
-                        ensure!(
-                            addresses_name.iter().collect::<HashSet<_>>().len()
-                                == addresses_name.len(),
-                            "Addresses name must be unique"
-                        );
-                        DeployConfig {
-                            private_key,
-                            module_type,
-                            modules_path,
-                            addresses_name,
-                            network,
-                            yes,
-                            output_json,
+                        PartialDeployConfig {
+                            private_key: None,
+                            module_type: None,
+                            modules_path: None,
+                            addresses_name: None,
+                            network: None,
+                            yes: None,
+                            output_json: None,
                         }
                     };
+                    if private_key.is_some() {
+                        partial_deploy_config.private_key = private_key;
+                    }
+                    if partial_deploy_config.module_type.is_none()
+                        || args_str.contains(&"--module-type".to_string())
+                    {
+                        partial_deploy_config.module_type = Some(module_type);
+                    }
+                    if modules_path.is_some() {
+                        partial_deploy_config.modules_path = modules_path;
+                    }
+                    if addresses_name.is_some() {
+                        partial_deploy_config.addresses_name = addresses_name;
+                    }
+                    if partial_deploy_config.network.is_none()
+                        || args_str.contains(&"--network".to_string())
+                    {
+                        partial_deploy_config.network = Some(network);
+                    }
+                    if partial_deploy_config.yes.is_none()
+                        || args_str.contains(&"--yes".to_string())
+                        || args_str.contains(&"-y".to_string())
+                    {
+                        partial_deploy_config.yes = Some(yes);
+                    }
+                    if partial_deploy_config.output_json.is_none()
+                        || args_str.contains(&"--output-json".to_string())
+                    {
+                        partial_deploy_config.output_json = Some(output_json);
+                    }
+
+                    let deploy_config = DeployConfig::from(partial_deploy_config);
+                    ensure!(
+                        deploy_config.modules_path.len() == deploy_config.addresses_name.len(),
+                        "Modules path and addresses name must have the same length"
+                    );
 
                     deploy_contracts(&deploy_config).await
                 }
