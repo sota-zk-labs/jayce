@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
+use aptos_sdk::types::LocalAccount;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct MoveTomlFile {
@@ -112,7 +113,7 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
     fs::write(
         &config.output_json,
         serde_json::to_string_pretty(&DeployReport {
-            account: AccountAddress::from_str(&config.private_key)?,
+            account: LocalAccount::from_private_key(&config.private_key, 0)?.address(),
             network: config.network.clone(),
             info: report_info,
         })?,
@@ -169,6 +170,7 @@ mod test {
     use std::env::var;
     use std::path::PathBuf;
     use std::str::FromStr;
+    use aptos_sdk::types::LocalAccount;
 
     #[tokio::test]
     async fn test_deploy_contracts() {
