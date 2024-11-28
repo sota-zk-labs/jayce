@@ -31,7 +31,8 @@ pub struct DeployConfig {
     pub network: AptosNetwork,
     pub yes: bool,
     pub output_json: PathBuf,
-    pub deployed_addresses: BTreeMap<String, AccountAddress>
+    pub deployed_addresses: BTreeMap<String, AccountAddress>,
+    pub rpc_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -43,7 +44,8 @@ pub struct PartialDeployConfig {
     pub network: Option<AptosNetwork>,
     pub yes: Option<bool>,
     pub output_json: Option<PathBuf>,
-    pub deployed_addresses: Option<BTreeMap<String, AccountAddress>>
+    pub deployed_addresses: Option<BTreeMap<String, AccountAddress>>,
+    pub rpc_url: Option<String>,
 }
 
 impl PartialDeployConfig {
@@ -67,25 +69,26 @@ impl From<PartialDeployConfig> for DeployConfig {
             network: value.network.expect("Missing argument 'network'"),
             yes: value.yes.expect("Missing argument 'yes'"),
             output_json: value.output_json.expect("Missing argument 'output-json'"),
-            deployed_addresses: value.deployed_addresses.expect("Missing argument 'deployed-addresses'")
+            deployed_addresses: value.deployed_addresses.expect("Missing argument 'deployed-addresses'"),
+            rpc_url: value.rpc_url,
         }
     }
 }
 
 impl AptosNetwork {
-    pub fn rest_url(&self) -> &str {
+    pub fn rpc_url(&self) -> Option<&str> {
         match self {
             AptosNetwork::Mainnet => {
-                "https://api.mainnet.aptoslabs.com/v1"
+                Some("https://api.mainnet.aptoslabs.com/v1")
             }
             AptosNetwork::Testnet => {
-                "https://api.testnet.aptoslabs.com/v1"
+                Some("https://api.testnet.aptoslabs.com/v1")
             }
             AptosNetwork::Devnet => {
-                "https://api.devnet.aptoslabs.com/v1"
+                Some("https://api.devnet.aptoslabs.com/v1")
             }
             AptosNetwork::Local => {
-                panic!("Local network is not supported")
+                None
             }
         }
     }

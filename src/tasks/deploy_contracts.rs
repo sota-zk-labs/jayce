@@ -94,7 +94,12 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
                 DeployModuleType::Account => "".to_string(),
                 DeployModuleType::Object => format!("--address-name {}", address_name),
             },
-            config.network.rest_url(),
+            match &config.rpc_url {
+                None => {
+                    config.network.rpc_url().expect("Failed to get rpc url")
+                },
+                Some(rpc_url) => rpc_url
+            },
             named_addresses
         );
         let mut args: Vec<&str> = args.split_whitespace().collect();
@@ -177,7 +182,7 @@ fn get_named_addresses(
 
 #[cfg(test)]
 mod test {
-    use crate::deploy_config::AptosNetwork;
+    use crate::deploy_config::{AptosNetwork, DeployConfig};
     use crate::tasks::deploy_contracts::deploy_contracts;
     use aptos_sdk::types::account_address::AccountAddress;
     use std::collections::BTreeMap;
@@ -202,7 +207,7 @@ mod test {
             )
             .unwrap(),
         );
-        let config = crate::deploy_config::DeployConfig {
+        let config = DeployConfig {
             module_type: crate::deploy_config::DeployModuleType::Account,
             private_key: var("APTOS_PRIVATE_KEY").unwrap(),
             network: AptosNetwork::Testnet,
@@ -221,6 +226,7 @@ mod test {
             yes: true,
             output_json: PathBuf::from("test.json"),
             deployed_addresses,
+            rpc_url: None,
         };
         deploy_contracts(&config).await.unwrap();
     }
