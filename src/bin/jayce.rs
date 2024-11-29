@@ -46,9 +46,12 @@ enum Commands {
         /// A map of already deployed addresses, e.g. addr_1=0x1,addr_2=0x2
         #[arg(long, value_parser = aptos::common::utils::parse_map::<String, AccountAddress>, default_value = "")]
         deployed_addresses: BTreeMap<String, AccountAddress>,
-        /// RPC url for the network
+        /// REST url for the network
         #[arg(long)]
-        rpc_url: Option<String>,
+        rest_url: Option<String>,
+        /// Faucet url for the network
+        #[arg(long)]
+        faucet_url: Option<String>,
         /// Automatically confirm prompts
         #[arg(short, long, default_value_t = false)]
         yes: bool,
@@ -78,7 +81,8 @@ async fn main() -> Result<()> {
                 network,
                 output_json,
                 deployed_addresses,
-                rpc_url,
+                rest_url,
+                faucet_url,
                 yes,
                 config_path,
                 module_type,
@@ -96,7 +100,8 @@ async fn main() -> Result<()> {
                         yes: None,
                         output_json: None,
                         deployed_addresses: None,
-                        rpc_url: None,
+                        rest_url: None,
+                        faucet_url: None,
                     }
                 };
                 if private_key.is_some() {
@@ -134,8 +139,11 @@ async fn main() -> Result<()> {
                 {
                     partial_deploy_config.deployed_addresses = Some(deployed_addresses);
                 }
-                if rpc_url.is_some() {
-                    partial_deploy_config.rpc_url = rpc_url;
+                if rest_url.is_some() {
+                    partial_deploy_config.rest_url = rest_url;
+                }
+                if faucet_url.is_some() {
+                    partial_deploy_config.faucet_url = faucet_url;
                 }
 
                 let deploy_config = DeployConfig::from(partial_deploy_config);
@@ -144,7 +152,7 @@ async fn main() -> Result<()> {
                     "Modules path and addresses name must have the same length"
                 );
 
-                deploy_contracts(&deploy_config).await
+                deploy_contracts(deploy_config).await
             }
         },
     }

@@ -1,12 +1,16 @@
 use crate::deploy_config::{AptosNetwork, DeployConfig, DeployModuleType};
+use crate::utils::{generate_account_and_faucet, DEFAULT_FAUCET_AMOUNT};
 use anyhow::{anyhow, ensure};
 use aptos::common::types::{CliCommand, TransactionSummary};
 use aptos::move_tool::MoveTool;
 use aptos::Tool;
+use aptos_sdk::crypto::ValidCryptoMaterialStringExt;
 use aptos_sdk::move_types::account_address::AccountAddress;
 use aptos_sdk::types::LocalAccount;
 use clap::Parser;
 use config::{Config, File, FileFormat};
+use dialoguer::theme::ColorfulTheme;
+use dialoguer::Confirm;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -32,15 +36,45 @@ struct TxReport {
     tx_info: TransactionSummary,
 }
 
-pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
+pub async fn deploy_contracts(mut config: DeployConfig) -> anyhow::Result<()> {
     let mut report_info = vec![];
-    let sender_addr = LocalAccount::from_private_key(&config.private_key, 0)?.address();
-    let result = run_core(config, &mut report_info, sender_addr).await;
+    let sender_addr = match &config.private_key {
+        None => {
+            if !config.yes {
+                if !Confirm::with_theme(&ColorfulTheme::default())
+                    .with_prompt("No private key provided, do you want to generate one?")
+                    .default(false)
+                    .show_default(true)
+                    .wait_for_newline(true)
+                    .interact()?
+                {
+                    return Ok(());
+                }
+            }
+            let account = generate_account_and_faucet(
+                &config.network,
+                config.faucet_url.clone(),
+                config.rest_url.clone(),
+            )
+            .await?;
+            let private_key = account.private_key().to_encoded_string()?;
+            let address = account.address();
+            println!(
+                "Generated account with address: {}, balance: {} Octas",
+                address, DEFAULT_FAUCET_AMOUNT
+            );
+            println!("Your private key is: {}", private_key);
+            config.private_key = Some(private_key);
+            address
+        }
+        Some(private_key) => LocalAccount::from_private_key(private_key, 0)?.address(),
+    };
+    let result = run_core(&config, &mut report_info, sender_addr).await;
     fs::write(
         &config.output_json,
         serde_json::to_string_pretty(&DeployReport {
             account: sender_addr,
-            network: config.network.clone(),
+            network: config.network,
             info: report_info,
         })?,
     )?;
@@ -106,16 +140,19 @@ async fn run_core(
                 DeployModuleType::Account => "publish",
             },
             package_dir.to_str().unwrap(),
-            &config.private_key,
+            config
+                .private_key
+                .clone()
+                .expect("Private key not found, this should not happen"),
             match config.module_type {
                 DeployModuleType::Account => "".to_string(),
                 DeployModuleType::Object => format!("--address-name {}", address_name),
             },
-            match &config.rpc_url {
+            match config.rest_url.clone() {
                 None => {
-                    config.network.rpc_url().expect("Failed to get rpc url")
+                    config.network.rest_url().expect("Failed to get rest url")
                 }
-                Some(rpc_url) => rpc_url,
+                Some(rest_url) => rest_url,
             },
             named_addresses
         );
@@ -218,7 +255,7 @@ mod test {
         );
         let config = DeployConfig {
             module_type: crate::deploy_config::DeployModuleType::Account,
-            private_key: var("APTOS_PRIVATE_KEY").unwrap(),
+            private_key: Some(var("APTOS_PRIVATE_KEY").unwrap()),
             network: AptosNetwork::Testnet,
             modules_path: vec![
                 // PathBuf::from("examples/contracts/navori/libs"),
@@ -235,8 +272,9 @@ mod test {
             yes: true,
             output_json: PathBuf::from("test.json"),
             deployed_addresses,
-            rpc_url: None,
+            rest_url: None,
+            faucet_url: None,
         };
-        deploy_contracts(&config).await.unwrap();
+        deploy_contracts(config).await.unwrap();
     }
 }

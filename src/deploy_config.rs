@@ -24,7 +24,7 @@ pub enum AptosNetwork {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct DeployConfig {
-    pub private_key: String,
+    pub private_key: Option<String>,
     pub module_type: DeployModuleType,
     pub modules_path: Vec<PathBuf>,
     pub addresses_name: Vec<String>,
@@ -32,7 +32,8 @@ pub struct DeployConfig {
     pub yes: bool,
     pub output_json: PathBuf,
     pub deployed_addresses: BTreeMap<String, AccountAddress>,
-    pub rpc_url: Option<String>,
+    pub rest_url: Option<String>,
+    pub faucet_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -45,7 +46,8 @@ pub struct PartialDeployConfig {
     pub yes: Option<bool>,
     pub output_json: Option<PathBuf>,
     pub deployed_addresses: Option<BTreeMap<String, AccountAddress>>,
-    pub rpc_url: Option<String>,
+    pub rest_url: Option<String>,
+    pub faucet_url: Option<String>,
 }
 
 impl PartialDeployConfig {
@@ -62,7 +64,7 @@ impl PartialDeployConfig {
 impl From<PartialDeployConfig> for DeployConfig {
     fn from(value: PartialDeployConfig) -> Self {
         DeployConfig {
-            private_key: value.private_key.expect("Missing argument 'private-key'"),
+            private_key: value.private_key,
             module_type: value.module_type.expect("Missing argument 'module type'"),
             modules_path: value.modules_path.expect("Missing argument 'modules-path'"),
             addresses_name: value
@@ -74,17 +76,27 @@ impl From<PartialDeployConfig> for DeployConfig {
             deployed_addresses: value
                 .deployed_addresses
                 .expect("Missing argument 'deployed-addresses'"),
-            rpc_url: value.rpc_url,
+            rest_url: value.rest_url,
+            faucet_url: value.faucet_url,
         }
     }
 }
 
 impl AptosNetwork {
-    pub fn rpc_url(&self) -> Option<&str> {
+    pub fn rest_url(&self) -> Option<String> {
         match self {
-            AptosNetwork::Mainnet => Some("https://api.mainnet.aptoslabs.com/v1"),
-            AptosNetwork::Testnet => Some("https://api.testnet.aptoslabs.com/v1"),
-            AptosNetwork::Devnet => Some("https://api.devnet.aptoslabs.com/v1"),
+            AptosNetwork::Mainnet => Some("https://api.mainnet.aptoslabs.com/v1".to_string()),
+            AptosNetwork::Testnet => Some("https://api.testnet.aptoslabs.com/v1".to_string()),
+            AptosNetwork::Devnet => Some("https://api.devnet.aptoslabs.com/v1".to_string()),
+            AptosNetwork::Local => None,
+        }
+    }
+
+    pub fn faucet_url(&self) -> Option<String> {
+        match self {
+            AptosNetwork::Mainnet => None,
+            AptosNetwork::Testnet => Some("https://faucet.testnet.aptoslabs.com".to_string()),
+            AptosNetwork::Devnet => Some("https://faucet.devnet.aptoslabs.com".to_string()),
             AptosNetwork::Local => None,
         }
     }

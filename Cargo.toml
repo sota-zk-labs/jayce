@@ -9,10 +9,13 @@ aptos = { git = "https://github.com/sota-zk-labs/aptos-core", branch = "jayce-ap
 aptos-sdk = { git = "https://github.com/sota-zk-labs/aptos-core", branch = "jayce-aptos-node-v1.23.5" }
 clap = { version = "4.5.21", features = ["derive"] }
 config = { version = "0.14.1" }
+dialoguer = "0.11.0"
+rand = "0.7.3"
 serde = { version = "1.0.215" }
 serde_json = "1.0.133"
 strum_macros = "0.26.4"
 tokio = { version = "1.41.1" }
+url = "2.5.4"
 
 [patch.crates-io]
 merlin = { git = "https://github.com/aptos-labs/merlin" }
