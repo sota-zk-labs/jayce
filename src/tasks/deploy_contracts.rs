@@ -34,8 +34,21 @@ struct TxReport {
 
 pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
     let mut report_info = vec![];
-    let mut deployed_addresses = config.deployed_addresses.clone();
     let sender_addr = LocalAccount::from_private_key(&config.private_key, 0)?.address();
+    let result = run_core(config, &mut report_info, sender_addr).await;
+    fs::write(
+        &config.output_json,
+        serde_json::to_string_pretty(&DeployReport {
+            account: sender_addr,
+            network: config.network.clone(),
+            info: report_info,
+        })?,
+    )?;
+    result
+}
+
+async fn run_core(config: &DeployConfig, report_info: &mut Vec<TxReport>, sender_addr: AccountAddress) -> anyhow::Result<()> {
+    let mut deployed_addresses = config.deployed_addresses.clone();
     for (package_dir, address_name) in config.modules_path.iter().zip(&config.addresses_name) {
         if deployed_addresses.contains_key(address_name) {
             println!(
@@ -76,14 +89,14 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
 
         let args = format!(
             "aptos move {} \
-                --package-dir {} \
-                --private-key {} \
-                --skip-fetch-latest-git-deps \
-                --included-artifacts none \
-                {} \
-                --url {} \
-                {} \
-                ",
+                    --package-dir {} \
+                    --private-key {} \
+                    --skip-fetch-latest-git-deps \
+                    --included-artifacts none \
+                    {} \
+                    --url {} \
+                    {} \
+                    ",
             match config.module_type {
                 DeployModuleType::Object => "create-object-and-publish-package",
                 DeployModuleType::Account => "publish",
@@ -97,8 +110,8 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
             match &config.rpc_url {
                 None => {
                     config.network.rpc_url().expect("Failed to get rpc url")
-                },
-                Some(rpc_url) => rpc_url
+                }
+                Some(rpc_url) => rpc_url,
             },
             named_addresses
         );
@@ -122,14 +135,6 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
             tx_info,
         });
     }
-    fs::write(
-        &config.output_json,
-        serde_json::to_string_pretty(&DeployReport {
-            account: sender_addr,
-            network: config.network.clone(),
-            info: report_info,
-        })?,
-    )?;
     Ok(())
 }
 

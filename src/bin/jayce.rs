@@ -44,7 +44,7 @@ enum Commands {
         #[arg(long, default_value = "deploy-report.json")]
         output_json: PathBuf,
         /// A map of already deployed addresses, e.g. addr_1=0x1,addr_2=0x2
-        #[arg(long, value_parser = aptos::common::utils::parse_map::<String, AccountAddress>)]
+        #[arg(long, value_parser = aptos::common::utils::parse_map::<String, AccountAddress>, default_value = "")]
         deployed_addresses: BTreeMap<String, AccountAddress>,
         /// RPC url for the network
         #[arg(long)]
