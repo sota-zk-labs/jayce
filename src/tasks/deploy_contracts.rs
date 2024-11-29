@@ -47,7 +47,11 @@ pub async fn deploy_contracts(config: &DeployConfig) -> anyhow::Result<()> {
     result
 }
 
-async fn run_core(config: &DeployConfig, report_info: &mut Vec<TxReport>, sender_addr: AccountAddress) -> anyhow::Result<()> {
+async fn run_core(
+    config: &DeployConfig,
+    report_info: &mut Vec<TxReport>,
+    sender_addr: AccountAddress,
+) -> anyhow::Result<()> {
     let mut deployed_addresses = config.deployed_addresses.clone();
     for (package_dir, address_name) in config.modules_path.iter().zip(&config.addresses_name) {
         if deployed_addresses.contains_key(address_name) {

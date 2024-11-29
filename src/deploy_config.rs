@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use aptos_sdk::move_types::account_address::AccountAddress;
 use clap::ValueEnum;
 use config::{Config as ConfigLoader, File, FileFormat};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
-use aptos_sdk::move_types::account_address::AccountAddress;
 use strum_macros::Display;
 
 #[derive(Deserialize, Clone, Debug, PartialEq, ValueEnum, Display)]
@@ -65,11 +65,15 @@ impl From<PartialDeployConfig> for DeployConfig {
             private_key: value.private_key.expect("Missing argument 'private-key'"),
             module_type: value.module_type.expect("Missing argument 'module type'"),
             modules_path: value.modules_path.expect("Missing argument 'modules-path'"),
-            addresses_name: value.addresses_name.expect("Missing argument 'addresses-name'"),
+            addresses_name: value
+                .addresses_name
+                .expect("Missing argument 'addresses-name'"),
             network: value.network.expect("Missing argument 'network'"),
             yes: value.yes.expect("Missing argument 'yes'"),
             output_json: value.output_json.expect("Missing argument 'output-json'"),
-            deployed_addresses: value.deployed_addresses.expect("Missing argument 'deployed-addresses'"),
+            deployed_addresses: value
+                .deployed_addresses
+                .expect("Missing argument 'deployed-addresses'"),
             rpc_url: value.rpc_url,
         }
     }
@@ -78,18 +82,10 @@ impl From<PartialDeployConfig> for DeployConfig {
 impl AptosNetwork {
     pub fn rpc_url(&self) -> Option<&str> {
         match self {
-            AptosNetwork::Mainnet => {
-                Some("https://api.mainnet.aptoslabs.com/v1")
-            }
-            AptosNetwork::Testnet => {
-                Some("https://api.testnet.aptoslabs.com/v1")
-            }
-            AptosNetwork::Devnet => {
-                Some("https://api.devnet.aptoslabs.com/v1")
-            }
-            AptosNetwork::Local => {
-                None
-            }
+            AptosNetwork::Mainnet => Some("https://api.mainnet.aptoslabs.com/v1"),
+            AptosNetwork::Testnet => Some("https://api.testnet.aptoslabs.com/v1"),
+            AptosNetwork::Devnet => Some("https://api.devnet.aptoslabs.com/v1"),
+            AptosNetwork::Local => None,
         }
     }
 }
@@ -100,7 +96,8 @@ mod test {
 
     #[test]
     fn test_read_deploy_config() {
-        let x = PartialDeployConfig::from_path("examples/config-files/deploy-contracts.toml").unwrap();
+        let x =
+            PartialDeployConfig::from_path("examples/config-files/deploy-contracts.toml").unwrap();
         dbg!(x);
     }
 }
