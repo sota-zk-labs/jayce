@@ -129,7 +129,6 @@ async fn run_core(
             "aptos move {} \
                     --package-dir {} \
                     --private-key {} \
-                    --skip-fetch-latest-git-deps \
                     --included-artifacts none \
                     {} \
                     --url {} \

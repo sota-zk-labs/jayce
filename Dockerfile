@@ -22,6 +22,6 @@ RUN cargo build --release
 # We do not need the Rust toolchain to run the binary!
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
-RUN apt update && apt install -y libdw-dev
+RUN apt update && apt install -y libdw-dev ca-certificates git
 COPY --from=builder /app/target/release/jayce /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/jayce"]
