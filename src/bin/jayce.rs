@@ -34,7 +34,7 @@ enum Commands {
         /// Paths to the modules to be deployed, separated by commas
         #[arg(long, num_args = 1.., value_delimiter = ',')]
         modules_path: Option<Vec<PathBuf>>,
-        /// Names of the addresses corresponding to the modules, separated by commas
+        /// Names of the addresses corresponding to the modules (must identify with your Move.toml), separated by commas
         #[arg(long, num_args = 1.., value_delimiter = ',')]
         addresses_name: Option<Vec<String>>,
         /// The network to deploy to
@@ -46,10 +46,10 @@ enum Commands {
         /// A map of already deployed addresses, e.g. addr_1=0x1,addr_2=0x2
         #[arg(long, value_parser = aptos::common::utils::parse_map::<String, AccountAddress>, default_value = "")]
         deployed_addresses: BTreeMap<String, AccountAddress>,
-        /// REST url for the network
+        /// REST url for the network, used for local network
         #[arg(long)]
         rest_url: Option<String>,
-        /// Faucet url for the network
+        /// Faucet url for the network, used when private key is not provided
         #[arg(long)]
         faucet_url: Option<String>,
         /// Automatically confirm prompts
