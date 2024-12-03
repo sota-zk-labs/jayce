@@ -1,0 +1,15 @@
+module_type = "object"
+private_key = "0x00"
+network = "testnet"
+modules_path = [
+  "examples/contracts/navori/cpu-2",
+  "examples/contracts/navori/cpu",
+  "examples/contracts/navori/verifier",
+]
+addresses_name = ["cpu_2_addr", "cpu_addr", "verifier_addr"]
+yes = true
+output_json = "test.json"
+deployed_addresses = { lib_addr = "0x123" }
+
+rest_url = "https://api.testnet.aptoslabs.com/v1"
+faucet_url = "https://faucet.testnet.aptoslabs.com"
