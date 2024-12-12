@@ -13,3 +13,4 @@ deployed_addresses = { lib_addr = "0x123" }
 
 rest_url = "https://api.testnet.aptoslabs.com/v1"
 faucet_url = "https://faucet.testnet.aptoslabs.com"
+public_code = false

@@ -34,6 +34,7 @@ pub struct DeployConfig {
     pub deployed_addresses: BTreeMap<String, AccountAddress>,
     pub rest_url: Option<String>,
     pub faucet_url: Option<String>,
+    pub public_code: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -48,6 +49,7 @@ pub struct PartialDeployConfig {
     pub deployed_addresses: Option<BTreeMap<String, AccountAddress>>,
     pub rest_url: Option<String>,
     pub faucet_url: Option<String>,
+    pub public_code: Option<bool>,
 }
 
 impl PartialDeployConfig {
@@ -78,6 +80,7 @@ impl From<PartialDeployConfig> for DeployConfig {
                 .expect("Missing argument 'deployed-addresses'"),
             rest_url: value.rest_url,
             faucet_url: value.faucet_url,
+            public_code: value.public_code.unwrap(),
         }
     }
 }

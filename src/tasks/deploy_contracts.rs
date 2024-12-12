@@ -1,7 +1,7 @@
 use crate::deploy_config::{AptosNetwork, DeployConfig, DeployModuleType};
 use crate::utils::{generate_account_and_faucet, DEFAULT_FAUCET_AMOUNT};
 use anyhow::{anyhow, ensure};
-use aptos::common::types::{CliCommand, TransactionSummary};
+use aptos::common::types::{CliCommand, CliError, TransactionSummary};
 use aptos::move_tool::MoveTool;
 use aptos::Tool;
 use aptos_sdk::crypto::ValidCryptoMaterialStringExt;
@@ -14,7 +14,9 @@ use dialoguer::Confirm;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+const DEPLOYER_PROFILE: &str = "jayce_deployer";
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct MoveTomlFile {
@@ -33,23 +35,22 @@ struct TxReport {
     module_path: PathBuf,
     address_name: String,
     deployed_at: AccountAddress,
-    tx_info: TransactionSummary,
+    tx_info: Vec<TransactionSummary>,
 }
 
 pub async fn deploy_contracts(mut config: DeployConfig) -> anyhow::Result<()> {
     let mut report_info = vec![];
     let sender_addr = match &config.private_key {
         None => {
-            if !config.yes {
-                if !Confirm::with_theme(&ColorfulTheme::default())
+            if !config.yes
+                && !Confirm::with_theme(&ColorfulTheme::default())
                     .with_prompt("No private key provided, do you want to generate one?")
                     .default(false)
                     .show_default(true)
                     .wait_for_newline(true)
                     .interact()?
-                {
-                    return Ok(());
-                }
+            {
+                return Ok(());
             }
             let account = generate_account_and_faucet(
                 &config.network,
@@ -69,6 +70,9 @@ pub async fn deploy_contracts(mut config: DeployConfig) -> anyhow::Result<()> {
         }
         Some(private_key) => LocalAccount::from_private_key(private_key, 0)?.address(),
     };
+
+    create_profile(&config).await?;
+
     let result = run_core(&config, &mut report_info, sender_addr).await;
     fs::write(
         &config.output_json,
@@ -78,6 +82,7 @@ pub async fn deploy_contracts(mut config: DeployConfig) -> anyhow::Result<()> {
             info: report_info,
         })?,
     )?;
+    remove_profile()?;
     result
 }
 
@@ -103,8 +108,8 @@ async fn run_core(
         let named_addresses =
             get_named_addresses(package_dir, address_name, config.module_type.clone())?;
         let named_addresses = named_addresses
-            .iter()
-            .map(|(named_address, _)| {
+            .keys()
+            .map(|named_address| {
                 let mut hex_address = deployed_addresses.get(named_address);
                 if hex_address.is_none() {
                     if named_address == address_name {
@@ -128,10 +133,9 @@ async fn run_core(
         let args = format!(
             "aptos move {} \
                     --package-dir {} \
-                    --private-key {} \
-                    --included-artifacts none \
+                    --included-artifacts {} \
+                    --profile {} \
                     {} \
-                    --url {} \
                     {} \
                     ",
             match config.module_type {
@@ -139,19 +143,11 @@ async fn run_core(
                 DeployModuleType::Account => "publish",
             },
             package_dir.to_str().unwrap(),
-            config
-                .private_key
-                .clone()
-                .expect("Private key not found, this should not happen"),
+            if config.public_code { "all" } else { "none" },
+            DEPLOYER_PROFILE,
             match config.module_type {
                 DeployModuleType::Account => "".to_string(),
                 DeployModuleType::Object => format!("--address-name {}", address_name),
-            },
-            match config.rest_url.clone() {
-                None => {
-                    config.network.rest_url().expect("Failed to get rest url")
-                }
-                Some(rest_url) => rest_url,
             },
             named_addresses
         );
@@ -161,7 +157,43 @@ async fn run_core(
             args.push("--assume-yes");
         }
 
-        let (tx_info, deployed_at) = deploy_to_object(&args).await?;
+        let (tx_info, deployed_at) = match run_deploy_command(&args).await {
+            Ok(x) => x,
+            Err(err) => {
+                match err {
+                    CliError::PackageSizeExceeded(err1, err0) => {
+                        println!(
+                            "The package is larger than {} bytes ({} bytes)!",
+                            err1, err0
+                        );
+                        match config.network {
+                            AptosNetwork::Mainnet | AptosNetwork::Testnet => {
+                                if !config.yes && !Confirm::with_theme(&ColorfulTheme::default())
+                                    .with_prompt("Do you want to publish packages using chunked publish?")
+                                    .default(false)
+                                    .show_default(true)
+                                    .wait_for_newline(true)
+                                    .interact()? {
+                                    return Err(err.into());
+                                } else {
+                                    args.push("--chunked-publish");
+                                    run_deploy_command(&args).await?
+                                }
+                            }
+                            _ => {
+                                return Err(anyhow!(
+                                    "{} is not supported for chunked publish",
+                                    config.network
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(err.into());
+                    }
+                }
+            }
+        };
 
         let deployed_at = match config.module_type {
             DeployModuleType::Account => sender_addr,
@@ -178,20 +210,73 @@ async fn run_core(
     Ok(())
 }
 
-async fn deploy_to_object(
-    args: &Vec<&str>,
-) -> anyhow::Result<(TransactionSummary, Option<AccountAddress>)> {
-    let tool = Tool::try_parse_from(args).expect("Failed to parse arguments");
+async fn create_profile(config: &DeployConfig) -> anyhow::Result<()> {
+    let private_key = config
+        .private_key
+        .clone()
+        .expect("Private key not found, this should not happen");
+    let rest_url = match config.rest_url.clone() {
+        None => config.network.rest_url().expect("Failed to get rest url"),
+        Some(rest_url) => rest_url,
+    };
+    let faucet_url = match config.faucet_url.clone() {
+        None => config
+            .network
+            .faucet_url()
+            .expect("Failed to get faucet url"),
+        Some(faucet_url) => faucet_url,
+    };
 
-    // Match on the parsed `Tool` to extract `CreateObjectAndPublishPackage`
-    if let Tool::Move(MoveTool::CreateObjectAndPublishPackage(cmd)) = tool {
-        let (tx_info, object_addr) = cmd.execute().await?;
-        Ok((tx_info, Some(object_addr)))
-    } else if let Tool::Move(MoveTool::Publish(cmd)) = tool {
-        let tx_info = cmd.execute().await?;
-        Ok((tx_info, None))
+    let command = format!(
+        "aptos init \
+        --network {} \
+        --profile {} \
+        --private-key {} \
+        --rest-url {} \
+        --faucet-url {}",
+        config.network, DEPLOYER_PROFILE, private_key, rest_url, faucet_url
+    );
+    let command: Vec<&str> = command.split_whitespace().collect();
+    let tool = Tool::try_parse_from(&command).expect("Failed to parse arguments");
+    if let Tool::Init(cmd_executor) = tool {
+        Ok(cmd_executor.execute().await?)
     } else {
         Err(anyhow!(format!(
+            "Wrong arguments to deploy contracts: {:?}",
+            command
+        )))
+    }
+}
+
+fn remove_profile() -> anyhow::Result<()> {
+    let mut config_yaml: serde_yaml::Value = Config::builder()
+        .add_source(File::new(".aptos/config.yaml", FileFormat::Yaml))
+        .build()?
+        .try_deserialize()?;
+    let profiles = config_yaml["profiles"].as_mapping_mut().unwrap();
+    if profiles.len() == 1 {
+        if profiles.contains_key(DEPLOYER_PROFILE) {
+            fs::remove_dir_all(".aptos")?;
+        }
+    } else if profiles.remove(DEPLOYER_PROFILE).is_some() {
+        fs::write(".aptos/config.yaml", serde_yaml::to_string(&config_yaml)?)?;
+    }
+    Ok(())
+}
+
+async fn run_deploy_command(
+    args: &Vec<&str>,
+) -> anyhow::Result<(Vec<TransactionSummary>, Option<AccountAddress>), CliError> {
+    let tool = Tool::try_parse_from(args).expect("Failed to parse arguments");
+
+    if let Tool::Move(MoveTool::CreateObjectAndPublishPackage(cmd_executor)) = tool {
+        let (tx_info, object_addr) = cmd_executor.execute().await?;
+        Ok((tx_info, Some(object_addr)))
+    } else if let Tool::Move(MoveTool::Publish(cmd_executor)) = tool {
+        let tx_info = cmd_executor.execute().await?;
+        Ok((tx_info, None))
+    } else {
+        Err(CliError::UnexpectedError(format!(
             "Wrong arguments to deploy contracts: {:?}",
             args
         )))
@@ -199,7 +284,7 @@ async fn deploy_to_object(
 }
 
 fn get_named_addresses(
-    package_dir: &PathBuf,
+    package_dir: &Path,
     address_name: &String,
     module_type: DeployModuleType,
 ) -> anyhow::Result<HashMap<String, String>> {
@@ -241,38 +326,30 @@ mod test {
         deployed_addresses.insert(
             "lib_addr".to_string(),
             AccountAddress::from_str(
-                "2d77ba9653c5260988950fd4cbd47dac49934cee8152d6a4a32b866d86a600b1",
-            )
-            .unwrap(),
-        );
-        deployed_addresses.insert(
-            "cpu_2_addr".to_string(),
-            AccountAddress::from_str(
-                "1b9750db89454d4697480a49908ac7d703f6d6db2b2b79ea9b2d8201485dbbfa",
+                "5ff8d528d6dbd196ef04e578b1e6eb8025c91f756fcb9ccbabf11aafcb0f1eca",
             )
             .unwrap(),
         );
         let config = DeployConfig {
-            module_type: crate::deploy_config::DeployModuleType::Account,
+            module_type: crate::deploy_config::DeployModuleType::Object,
             private_key: Some(var("APTOS_PRIVATE_KEY").unwrap()),
             network: AptosNetwork::Testnet,
             modules_path: vec![
                 // PathBuf::from("examples/contracts/navori/libs"),
-                // PathBuf::from("examples/contracts/navori/cpu-2"),
-                PathBuf::from("examples/contracts/navori/cpu"),
-                PathBuf::from("examples/contracts/navori/verifier"),
+                PathBuf::from("examples/contracts/navori/cpu-2"),
             ],
             addresses_name: vec![
                 // "lib_addr".to_string(),
-                // "cpu_2_addr".to_string(),
-                "cpu_addr".to_string(),
-                "verifier_addr".to_string(),
+                "cpu_2_addr".to_string(),
+                // "cpu_addr".to_string(),
+                // "verifier_addr".to_string(),
             ],
-            yes: true,
+            yes: false,
             output_json: PathBuf::from("test.json"),
             deployed_addresses,
             rest_url: None,
             faucet_url: None,
+            public_code: true,
         };
         deploy_contracts(config).await.unwrap();
     }

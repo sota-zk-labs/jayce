@@ -13,6 +13,7 @@ dialoguer = "0.11.0"
 rand = "0.7.3"
 serde = { version = "1.0.215" }
 serde_json = "1.0.133"
+serde_yaml = "0.9.33"
 strum_macros = "0.26.4"
 tokio = { version = "1.41.1" }
 url = "2.5.4"
