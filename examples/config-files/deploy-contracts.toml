@@ -10,7 +10,6 @@ addresses_name = ["cpu_2_addr", "cpu_addr", "verifier_addr"]
 yes = true
 output_json = "test.json"
 deployed_addresses = { lib_addr = "0x123" }
-
 rest_url = "https://api.testnet.aptoslabs.com/v1"
 faucet_url = "https://faucet.testnet.aptoslabs.com"
-public_code = false
+publish_code = false

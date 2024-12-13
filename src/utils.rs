@@ -1,13 +1,16 @@
-use crate::deploy_config::AptosNetwork;
+use std::process::Command;
+use std::str::FromStr;
+
 use anyhow::{anyhow, ensure};
 use aptos_sdk::rest_client::FaucetClient;
 use aptos_sdk::types::LocalAccount;
 use rand::rngs::OsRng;
-use std::process::Command;
-use std::str::FromStr;
 use url::Url;
 
+use crate::deploy_config::AptosNetwork;
+
 pub const DEFAULT_FAUCET_AMOUNT: u64 = 100_000_000;
+
 pub fn check_aptos_installed() -> anyhow::Result<()> {
     ensure!(
         Command::new("aptos").output().is_ok(),
