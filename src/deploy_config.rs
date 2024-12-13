@@ -1,9 +1,10 @@
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
 use aptos_sdk::move_types::account_address::AccountAddress;
 use clap::ValueEnum;
 use config::{Config as ConfigLoader, File, FileFormat};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::path::PathBuf;
 use strum_macros::Display;
 
 #[derive(Deserialize, Clone, Debug, PartialEq, ValueEnum, Display)]
@@ -34,7 +35,7 @@ pub struct DeployConfig {
     pub deployed_addresses: BTreeMap<String, AccountAddress>,
     pub rest_url: Option<String>,
     pub faucet_url: Option<String>,
-    pub public_code: bool,
+    pub publish_code: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -49,7 +50,7 @@ pub struct PartialDeployConfig {
     pub deployed_addresses: Option<BTreeMap<String, AccountAddress>>,
     pub rest_url: Option<String>,
     pub faucet_url: Option<String>,
-    pub public_code: Option<bool>,
+    pub publish_code: Option<bool>,
 }
 
 impl PartialDeployConfig {
@@ -80,7 +81,7 @@ impl From<PartialDeployConfig> for DeployConfig {
                 .expect("Missing argument 'deployed-addresses'"),
             rest_url: value.rest_url,
             faucet_url: value.faucet_url,
-            public_code: value.public_code.unwrap(),
+            publish_code: value.publish_code.expect("Missing argument 'publish-code'"),
         }
     }
 }

@@ -52,9 +52,9 @@ enum Commands {
         /// Faucet url for the network, used when private key is not provided
         #[arg(long)]
         faucet_url: Option<String>,
-        /// Public your code onchain
+        /// Publish your code onchain
         #[arg(long, default_value_t = false)]
-        public_code: bool,
+        publish_code: bool,
         /// Automatically confirm prompts
         #[arg(short, long, default_value_t = false)]
         yes: bool,
@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
                 deployed_addresses,
                 rest_url,
                 faucet_url,
-                public_code,
+                publish_code,
                 yes,
                 config_path,
                 module_type,
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
                         deployed_addresses: None,
                         rest_url: None,
                         faucet_url: None,
-                        public_code: None,
+                        publish_code: None,
                     }
                 };
                 if private_key.is_some() {
@@ -151,10 +151,10 @@ async fn main() -> Result<()> {
                 if faucet_url.is_some() {
                     partial_deploy_config.faucet_url = faucet_url;
                 }
-                if partial_deploy_config.public_code.is_none()
-                    || args_str.contains(&"--public-code".to_string())
+                if partial_deploy_config.publish_code.is_none()
+                    || args_str.contains(&"--publish-code".to_string())
                 {
-                    partial_deploy_config.public_code = Some(public_code);
+                    partial_deploy_config.publish_code = Some(publish_code);
                 }
 
                 let deploy_config = DeployConfig::from(partial_deploy_config);

@@ -1,5 +1,8 @@
-use crate::deploy_config::{AptosNetwork, DeployConfig, DeployModuleType};
-use crate::utils::{generate_account_and_faucet, DEFAULT_FAUCET_AMOUNT};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::{fs, panic};
+
 use anyhow::{anyhow, ensure};
 use aptos::common::types::{CliCommand, CliError, TransactionSummary};
 use aptos::move_tool::MoveTool;
@@ -12,9 +15,10 @@ use config::{Config, File, FileFormat};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Confirm;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use tokio::sync::Mutex;
+
+use crate::deploy_config::{AptosNetwork, DeployConfig, DeployModuleType};
+use crate::utils::{generate_account_and_faucet, DEFAULT_FAUCET_AMOUNT};
 
 const DEPLOYER_PROFILE: &str = "jayce_deployer";
 
@@ -39,7 +43,7 @@ struct TxReport {
 }
 
 pub async fn deploy_contracts(mut config: DeployConfig) -> anyhow::Result<()> {
-    let mut report_info = vec![];
+    let report_info: Arc<Mutex<Vec<TxReport>>> = Arc::new(Mutex::new(vec![]));
     let sender_addr = match &config.private_key {
         None => {
             if !config.yes
@@ -73,17 +77,28 @@ pub async fn deploy_contracts(mut config: DeployConfig) -> anyhow::Result<()> {
 
     create_profile(&config).await?;
 
-    let result = run_core(&config, &mut report_info, sender_addr).await;
+    let config = Arc::new(config);
+    let report_info_clone = Arc::clone(&report_info);
+    let config_clone = Arc::clone(&config);
+    let result = tokio::spawn(async move {
+        let mut report_info = report_info_clone.lock().await;
+        run_core(&config_clone, &mut report_info, sender_addr).await
+    })
+    .await;
+
     fs::write(
         &config.output_json,
         serde_json::to_string_pretty(&DeployReport {
             account: sender_addr,
-            network: config.network,
-            info: report_info,
+            network: config.network.clone(),
+            info: std::mem::take(&mut *report_info.lock().await),
         })?,
     )?;
     remove_profile()?;
-    result
+    match result {
+        Ok(result) => result,
+        Err(err) => Err(err.into()),
+    }
 }
 
 async fn run_core(
@@ -143,7 +158,7 @@ async fn run_core(
                 DeployModuleType::Account => "publish",
             },
             package_dir.to_str().unwrap(),
-            if config.public_code { "all" } else { "none" },
+            if config.publish_code { "all" } else { "none" },
             DEPLOYER_PROFILE,
             match config.module_type {
                 DeployModuleType::Account => "".to_string(),
@@ -312,13 +327,15 @@ fn get_named_addresses(
 
 #[cfg(test)]
 mod test {
-    use crate::deploy_config::{AptosNetwork, DeployConfig};
-    use crate::tasks::deploy_contracts::deploy_contracts;
-    use aptos_sdk::types::account_address::AccountAddress;
     use std::collections::BTreeMap;
     use std::env::var;
     use std::path::PathBuf;
     use std::str::FromStr;
+
+    use aptos_sdk::types::account_address::AccountAddress;
+
+    use crate::deploy_config::{AptosNetwork, DeployConfig};
+    use crate::tasks::deploy_contracts::deploy_contracts;
 
     #[tokio::test]
     async fn test_deploy_contracts() {
@@ -326,7 +343,14 @@ mod test {
         deployed_addresses.insert(
             "lib_addr".to_string(),
             AccountAddress::from_str(
-                "5ff8d528d6dbd196ef04e578b1e6eb8025c91f756fcb9ccbabf11aafcb0f1eca",
+                "2d01428a36c36c2799e2c489f02b09f08339dc6321cef017458f7e21ea8a0fcc",
+            )
+            .unwrap(),
+        );
+        deployed_addresses.insert(
+            "cpu_2_addr".to_string(),
+            AccountAddress::from_str(
+                "7b38c1276ba8662d085df8f4f4226d314d0296bc6dc955c43ea2b9ec05829980",
             )
             .unwrap(),
         );
@@ -335,21 +359,16 @@ mod test {
             private_key: Some(var("APTOS_PRIVATE_KEY").unwrap()),
             network: AptosNetwork::Testnet,
             modules_path: vec![
-                // PathBuf::from("examples/contracts/navori/libs"),
-                PathBuf::from("examples/contracts/navori/cpu-2"),
+                PathBuf::from("examples/contracts/navori/cpu"),
+                PathBuf::from("examples/contracts/navori/verifier"),
             ],
-            addresses_name: vec![
-                // "lib_addr".to_string(),
-                "cpu_2_addr".to_string(),
-                // "cpu_addr".to_string(),
-                // "verifier_addr".to_string(),
-            ],
-            yes: false,
+            addresses_name: vec!["cpu_addr".to_string(), "verifier_addr".to_string()],
+            yes: true,
             output_json: PathBuf::from("test.json"),
             deployed_addresses,
             rest_url: None,
             faucet_url: None,
-            public_code: true,
+            publish_code: true,
         };
         deploy_contracts(config).await.unwrap();
     }
