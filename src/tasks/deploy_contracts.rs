@@ -248,8 +248,14 @@ async fn create_profile(config: &DeployConfig) -> anyhow::Result<()> {
         --profile {} \
         --private-key {} \
         --rest-url {} \
-        --faucet-url {}",
-        config.network, DEPLOYER_PROFILE, private_key, rest_url, faucet_url
+        --faucet-url {} \
+        {}",
+        config.network,
+        DEPLOYER_PROFILE,
+        private_key,
+        rest_url,
+        faucet_url,
+        if config.yes { "--assume-yes" } else { "" }
     );
     let command: Vec<&str> = command.split_whitespace().collect();
     let tool = Tool::try_parse_from(&command).expect("Failed to parse arguments");
@@ -328,48 +334,71 @@ fn get_named_addresses(
 #[cfg(test)]
 mod test {
     use std::collections::BTreeMap;
-    use std::env::var;
     use std::path::PathBuf;
-    use std::str::FromStr;
 
-    use aptos_sdk::types::account_address::AccountAddress;
+    use anyhow::anyhow;
+    use aptos::common::types::CliCommand;
+    use aptos::node::NodeTool;
+    use aptos::Tool;
+    use clap::Parser;
+    use tokio::sync::oneshot;
 
-    use crate::deploy_config::{AptosNetwork, DeployConfig};
+    use crate::deploy_config::{AptosNetwork, DeployConfig, DeployModuleType};
     use crate::tasks::deploy_contracts::deploy_contracts;
 
     #[tokio::test]
     async fn test_deploy_contracts() {
-        let mut deployed_addresses = BTreeMap::new();
-        deployed_addresses.insert(
-            "lib_addr".to_string(),
-            AccountAddress::from_str(
-                "2d01428a36c36c2799e2c489f02b09f08339dc6321cef017458f7e21ea8a0fcc",
-            )
-            .unwrap(),
-        );
-        deployed_addresses.insert(
-            "cpu_2_addr".to_string(),
-            AccountAddress::from_str(
-                "7b38c1276ba8662d085df8f4f4226d314d0296bc6dc955c43ea2b9ec05829980",
-            )
-            .unwrap(),
-        );
+        let (tx, rx) = oneshot::channel();
+        let run_localnet_task = tokio::spawn(async move {
+            tokio::select! {
+                _ = rx => {
+                    println!("Localnet task finished");
+                }
+                _ = run_localnet() => {
+                    println!("Localnet task finished");
+                }
+            }
+        });
+        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
         let config = DeployConfig {
-            module_type: crate::deploy_config::DeployModuleType::Object,
-            private_key: Some(var("APTOS_PRIVATE_KEY").unwrap()),
-            network: AptosNetwork::Testnet,
+            module_type: DeployModuleType::Object,
+            private_key: None,
+            network: AptosNetwork::Local,
             modules_path: vec![
+                PathBuf::from("examples/contracts/navori/libs"),
+                PathBuf::from("examples/contracts/navori/cpu-2"),
                 PathBuf::from("examples/contracts/navori/cpu"),
                 PathBuf::from("examples/contracts/navori/verifier"),
             ],
-            addresses_name: vec!["cpu_addr".to_string(), "verifier_addr".to_string()],
+            addresses_name: vec![
+                "lib_addr".to_string(),
+                "cpu_2_addr".to_string(),
+                "cpu_addr".to_string(),
+                "verifier_addr".to_string(),
+            ],
             yes: true,
             output_json: PathBuf::from("test.json"),
-            deployed_addresses,
-            rest_url: None,
-            faucet_url: None,
-            publish_code: true,
+            deployed_addresses: BTreeMap::new(),
+            rest_url: Some("http://localhost:8080".to_string()),
+            faucet_url: Some("http://localhost:8081".to_string()),
+            publish_code: false,
         };
         deploy_contracts(config).await.unwrap();
+
+        tx.send(()).unwrap();
+        run_localnet_task.await.unwrap();
+    }
+
+    async fn run_localnet() -> anyhow::Result<()> {
+        let args = "aptos node run-localnet --performance";
+        let args: Vec<_> = args.split_whitespace().collect();
+        let tool = Tool::try_parse_from(args)?;
+        if let Tool::Node(NodeTool::RunLocalnet(cmd_executor)) = tool {
+            cmd_executor.execute().await?;
+        } else {
+            return Err(anyhow!("Wrong arguments to run localnet"));
+        }
+        Ok(())
     }
 }

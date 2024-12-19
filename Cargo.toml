@@ -8,7 +8,7 @@ anyhow = { version = "1.0.93" }
 aptos = { git = "https://github.com/sota-zk-labs/aptos-core", branch = "jayce-aptos-node-v1.23.5" }
 aptos-sdk = { git = "https://github.com/sota-zk-labs/aptos-core", branch = "jayce-aptos-node-v1.23.5" }
 clap = { version = "4.5.21", features = ["derive"] }
-config = { version = "0.14.1" }
+config = { version = "0.15.0" }
 dialoguer = "0.11.0"
 rand = "0.7.3"
 serde = { version = "1.0.215" }
